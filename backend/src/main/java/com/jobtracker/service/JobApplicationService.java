@@ -1,6 +1,23 @@
 package com.jobtracker.service;
 
-import com.jobtracker.dto.*;
+import java.time.LocalDateTime;
+import java.time.format.TextStyle;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.jobtracker.dto.AnalyticsResponse;
+import com.jobtracker.dto.DashboardStatsResponse;
+import com.jobtracker.dto.JobApplicationRequest;
+import com.jobtracker.dto.JobApplicationResponse;
 import com.jobtracker.entity.ApplicationStatus;
 import com.jobtracker.entity.JobApplication;
 import com.jobtracker.entity.JobType;
@@ -9,14 +26,8 @@ import com.jobtracker.exception.AccessDeniedForResourceException;
 import com.jobtracker.exception.ResourceNotFoundException;
 import com.jobtracker.repository.JobApplicationRepository;
 import com.jobtracker.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.time.format.TextStyle;
-import java.util.*;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -30,13 +41,17 @@ public class JobApplicationService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found."));
 
+        ApplicationStatus status = request.getStatus() == null
+            ? ApplicationStatus.APPLIED
+            : request.getStatus();
+
         JobApplication application = JobApplication.builder()
                 .user(user)
                 .companyName(request.getCompanyName())
                 .jobTitle(request.getJobTitle())
                 .location(request.getLocation())
                 .jobType(request.getJobType())
-                .status(request.getStatus())
+                .status(status)
                 .applicationDate(request.getApplicationDate())
                 .interviewDate(request.getInterviewDate())
                 .jobUrl(request.getJobUrl())
@@ -78,12 +93,11 @@ public class JobApplicationService {
     @Transactional
     public JobApplicationResponse update(Long userId, Long applicationId, JobApplicationRequest request) {
         JobApplication application = findOwned(userId, applicationId);
-
         application.setCompanyName(request.getCompanyName());
         application.setJobTitle(request.getJobTitle());
         application.setLocation(request.getLocation());
         application.setJobType(request.getJobType());
-        application.setStatus(request.getStatus());
+        application.setStatus(request.getStatus() == null ? ApplicationStatus.APPLIED : request.getStatus());
         application.setApplicationDate(request.getApplicationDate());
         application.setInterviewDate(request.getInterviewDate());
         application.setJobUrl(request.getJobUrl());

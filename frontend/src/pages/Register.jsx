@@ -39,7 +39,13 @@ export default function Register() {
       setSuccessMessage('Account created successfully. Redirecting to login...')
       setTimeout(() => navigate('/login'), 1200)
     } catch (err) {
-      setFormError(getErrorMessage(err, 'Could not create your account. Please try again.'))
+      if (!err.response) {
+        setFormError('Could not reach the server. Check that this site is allowed by the API CORS settings.')
+      } else if (err.response.status >= 500) {
+        setFormError('The server could not create your account right now. Please try again later.')
+      } else {
+        setFormError(getErrorMessage(err, 'Could not create your account. Please check your details and try again.'))
+      }
     } finally {
       setSubmitting(false)
     }

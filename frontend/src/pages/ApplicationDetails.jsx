@@ -6,6 +6,7 @@ import ConfirmModal from '../components/ConfirmModal'
 import { jobService } from '../services/jobService'
 import { getErrorMessage } from '../services/api'
 import { formatDate, JOB_TYPE_LABELS } from '../utils/formatters'
+import { normalizeExternalUrl } from '../utils/urls'
 
 export default function ApplicationDetails() {
   const { id } = useParams()
@@ -42,6 +43,7 @@ export default function ApplicationDetails() {
   if (loading) return <div className="loading-text">Loading application...</div>
   if (error) return <div className="alert alert-error">{error}</div>
   if (!app) return null
+  const jobUrl = normalizeExternalUrl(app.jobUrl)
 
   return (
     <div>
@@ -85,8 +87,8 @@ export default function ApplicationDetails() {
 
         <div style={{ marginBottom: 20 }}>
           <div className="stat-label" style={{ marginBottom: 6 }}>Job Link</div>
-          {app.jobUrl ? (
-            <a href={app.jobUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          {jobUrl ? (
+            <a href={jobUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
               View Job <ExternalLink size={14} />
             </a>
           ) : (

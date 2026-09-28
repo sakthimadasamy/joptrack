@@ -1,13 +1,14 @@
 package com.jobtracker.repository;
 
-import com.jobtracker.entity.ApplicationStatus;
-import com.jobtracker.entity.JobApplication;
+import java.time.LocalDateTime;
+import java.util.List;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.LocalDateTime;
-import java.util.List;
+import com.jobtracker.entity.ApplicationStatus;
+import com.jobtracker.entity.JobApplication;
 
 public interface JobApplicationRepository extends JpaRepository<JobApplication, Long> {
 
@@ -20,8 +21,8 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Query("""
             SELECT j FROM JobApplication j
             WHERE j.user.id = :userId
-              AND j.status = 'INTERVIEW'
               AND j.interviewDate IS NOT NULL
+              AND j.status NOT IN ('SELECTED', 'REJECTED')
               AND j.interviewDate >= :from
             ORDER BY j.interviewDate ASC
             """)
@@ -30,8 +31,8 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Query("""
             SELECT j FROM JobApplication j
             WHERE j.user.id = :userId
-              AND j.status = 'INTERVIEW'
               AND j.interviewDate IS NOT NULL
+              AND j.status NOT IN ('SELECTED', 'REJECTED')
               AND j.interviewDate < :from
             ORDER BY j.interviewDate DESC
             """)

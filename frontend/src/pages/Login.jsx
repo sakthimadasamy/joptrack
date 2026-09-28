@@ -34,7 +34,12 @@ export default function Login() {
       const redirectTo = location.state?.from?.pathname || '/dashboard'
       navigate(redirectTo, { replace: true })
     } catch (err) {
-      setFormError(getErrorMessage(err, 'Invalid email or password.'))
+      const fallback = !err.response
+        ? 'Unable to reach the server. Check your connection and try again.'
+        : err.response.status === 401
+          ? 'Invalid email or password.'
+          : 'Unable to log in right now. Please try again.'
+      setFormError(getErrorMessage(err, fallback))
     } finally {
       setSubmitting(false)
     }
@@ -98,9 +103,11 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="demo-hint">
-            Demo account — email: <strong>demo@jobtrack.com</strong>, password: <strong>demo1234</strong>
-          </div>
+          {import.meta.env.DEV && (
+            <div className="demo-hint">
+              Demo account — email: <strong>demo@jobtrack.com</strong>, password: <strong>demo1234</strong>
+            </div>
+          )}
 
           <p className="auth-footer">
             Don't have an account? <Link to="/register">Create account</Link>

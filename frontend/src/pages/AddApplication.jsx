@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { jobService } from '../services/jobService'
 import { getErrorMessage } from '../services/api'
-import { formatDateInputValue, formatDateTimeInputValue } from '../utils/formatters'
+import { formatDateInputValue } from '../utils/formatters'
+import { normalizeExternalUrl } from '../utils/urls'
 
 const EMPTY_FORM = {
   companyName: '',
@@ -12,8 +13,44 @@ const EMPTY_FORM = {
   status: 'APPLIED',
   applicationDate: '',
   interviewDate: '',
+  interviewTime: '',
+  interviewMeridiem: 'AM',
   jobUrl: '',
   notes: '',
+}
+
+function parseInterviewParts(value) {
+  if (!value) return { date: '', time: '', meridiem: 'AM' }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return { date: '', time: '', meridiem: 'AM' }
+
+  const pad = (n) => String(n).padStart(2, '0')
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  const meridiem = hours >= 12 ? 'PM' : 'AM'
+  const hour12 = hours % 12 || 12
+
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(hour12)}:${pad(minutes)}`,
+    meridiem,
+  }
+}
+
+function buildInterviewDateTimeValue(form) {
+  if (!form.interviewDate || !form.interviewTime) return null
+
+  let [hours, minutes] = form.interviewTime.split(':').map(Number)
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null
+
+  if (form.interviewMeridiem === 'PM' && hours !== 12) hours += 12
+  if (form.interviewMeridiem === 'AM' && hours === 12) hours = 0
+
+  const formattedHours = String(hours).padStart(2, '0')
+  const formattedMinutes = String(minutes).padStart(2, '0')
+
+  return `${form.interviewDate}T${formattedHours}:${formattedMinutes}:00`
 }
 
 export default function AddApplication() {
@@ -32,6 +69,8 @@ export default function AddApplication() {
     jobService
       .getById(id)
       .then((app) => {
+        const interviewParts = parseInterviewParts(app.interviewDate)
+
         setForm({
           companyName: app.companyName || '',
           jobTitle: app.jobTitle || '',
@@ -39,7 +78,9 @@ export default function AddApplication() {
           jobType: app.jobType || 'FULL_TIME',
           status: app.status || 'APPLIED',
           applicationDate: formatDateInputValue(app.applicationDate),
-          interviewDate: formatDateTimeInputValue(app.interviewDate),
+          interviewDate: interviewParts.date,
+          interviewTime: interviewParts.time,
+          interviewMeridiem: interviewParts.meridiem,
           jobUrl: app.jobUrl || '',
           notes: app.notes || '',
         })
@@ -53,6 +94,9 @@ export default function AddApplication() {
     if (!form.companyName.trim()) next.companyName = 'Company name is required.'
     if (!form.jobTitle.trim()) next.jobTitle = 'Job title is required.'
     if (!form.status) next.status = 'Status is required.'
+    if (form.jobUrl.trim() && !normalizeExternalUrl(form.jobUrl)) {
+      next.jobUrl = 'Enter a valid web address.'
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -66,7 +110,10 @@ export default function AddApplication() {
     const payload = {
       ...form,
       applicationDate: form.applicationDate || null,
-      interviewDate: form.interviewDate ? new Date(form.interviewDate).toISOString() : null,
+      interviewDate: buildInterviewDateTimeValue(form),
+      jobUrl: normalizeExternalUrl(form.jobUrl) || null,
+      interviewTime: undefined,
+      interviewMeridiem: undefined,
     }
 
     try {
@@ -196,11 +243,33 @@ export default function AddApplication() {
               <label htmlFor="interviewDate">Interview Date</label>
               <input
                 id="interviewDate"
-                type="datetime-local"
+                type="date"
                 className="input"
                 value={form.interviewDate}
-                onChange={(e) => setForm({ ...form, interviewDate: e.target.value })}
+                onChange={(e) => setForm((current) => ({ ...current, interviewDate: e.target.value }))}
               />
+            </div>
+
+            <div className="field">
+              <label htmlFor="interviewTime">Interview Time</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  id="interviewTime"
+                  type="time"
+                  className="input"
+                  value={form.interviewTime}
+                  onChange={(e) => setForm({ ...form, interviewTime: e.target.value })}
+                />
+                <select
+                  className="select"
+                  value={form.interviewMeridiem}
+                  onChange={(e) => setForm({ ...form, interviewMeridiem: e.target.value })}
+                  style={{ width: 90 }}
+                >
+                  <option value="AM">AM</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
               <span className="hint">Only needed if an interview is scheduled.</span>
             </div>
 
@@ -208,12 +277,14 @@ export default function AddApplication() {
               <label htmlFor="jobUrl">Job URL</label>
               <input
                 id="jobUrl"
-                type="url"
+                type="text"
+                inputMode="url"
                 className="input"
-                placeholder="https://..."
+                placeholder="www.company.com/jobs/123"
                 value={form.jobUrl}
                 onChange={(e) => setForm({ ...form, jobUrl: e.target.value })}
               />
+              {errors.jobUrl && <span className="error-text">{errors.jobUrl}</span>}
             </div>
           </div>
         </div>
