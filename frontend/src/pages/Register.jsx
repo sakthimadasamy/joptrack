@@ -40,7 +40,9 @@ export default function Register() {
       setTimeout(() => navigate('/login'), 1200)
     } catch (err) {
       if (!err.response) {
-        setFormError('Could not reach the server. Check that this site is allowed by the API CORS settings.')
+        setFormError(err.code === 'ECONNABORTED'
+          ? 'The server took too long to wake up. Please wait a minute and try again.'
+          : 'Could not reach the server. Check that this site is allowed by the API CORS settings.')
       } else if (err.response.status >= 500) {
         setFormError('The server could not create your account right now. Please try again later.')
       } else {
