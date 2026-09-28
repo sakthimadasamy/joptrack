@@ -1,0 +1,42 @@
+# ===============================
+# Java / Maven
+# ===============================
+backend/target/
+target/
+*.class
+*.jar
+*.war
+
+# ===============================
+# Node
+# ===============================
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ===============================
+# Environment / secrets
+# ===============================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ===============================
+# Logs
+# ===============================
+*.log
+npm-debug.log*
+yarn-error.log*
+logs/
+
+# ===============================
+# OS / editor
+# ===============================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.swp

@@ -1,0 +1,86 @@
+name: Deploy
+
+# Optional. The simpler path is to let Render and Vercel deploy from Git
+# directly (both support it natively, no secrets required) - see the README.
+# This workflow is for when you want deploys to run from CI instead.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   RENDER_DEPLOY_HOOK_URL   Render dashboard > your service > Settings >
+#                            Deploy > Deploy Hook
+#   VERCEL_TOKEN             vercel.com > Account Settings > Tokens
+#   VERCEL_ORG_ID            Vercel project > Settings > General
+#   VERCEL_PROJECT_ID        Vercel project > Settings > General
+#
+# VITE_API_BASE_URL is NOT passed here. Store it as an encrypted variable on the
+# Vercel project so `vercel pull` picks it up, and it never passes through CI logs.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    name: Backend -> Render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for deploy hook
+        id: check
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RENDER_DEPLOY_HOOK_URL is not set - skipping backend deploy."
+          fi
+
+      - name: Trigger deploy
+        if: steps.check.outputs.configured == 'true'
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK_URL"
+
+  frontend:
+    name: Frontend -> Vercel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for Vercel credentials
+        id: check
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::VERCEL_TOKEN is not set - skipping frontend deploy."
+          fi
+
+      # --prebuilt uploads the output of `vercel build`, so the exact same
+      # artifact CI verified is what gets published.
+      - name: Pull project settings and deploy
+        if: steps.check.outputs.configured == 'true'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
+          npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"

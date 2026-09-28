@@ -19,8 +19,13 @@ behave like a real SaaS product suitable for a developer portfolio.
 - [Project Structure](#project-structure)
 - [How to Run the Backend](#how-to-run-the-backend)
 - [How to Run the Frontend](#how-to-run-the-frontend)
-- [How to Configure MySQL](#how-to-configure-mysql)
+- [Configuration Profiles](#configuration-profiles)
 - [Environment Variables](#environment-variables)
+- [Deploying](#deploying)
+  - [Backend to Render + Supabase](#backend-to-render--supabase)
+  - [Frontend to Vercel](#frontend-to-vercel)
+  - [Netlify / Cloudflare Pages](#netlify--cloudflare-pages)
+  - [Continuous Deployment](#continuous-deployment)
 - [Demo Account](#demo-account)
 - [Future Improvements](#future-improvements)
 
@@ -64,8 +69,8 @@ authentication layer and by ownership checks on every request.
 
 **Frontend:** React 18, Vite, React Router, Axios, Lucide icons, plain CSS
 **Backend:** Java 17, Spring Boot 3, Spring Web, Spring Data JPA, Spring Security, JWT (jjwt)
-**Database:** MySQL 8
-**Tooling:** Maven, npm, Git
+**Database:** PostgreSQL in production (Supabase), MySQL 8 for local development
+**Tooling:** Maven, npm, Git, Docker, GitHub Actions
 
 ---
 
@@ -78,7 +83,8 @@ React (Vite)
 Spring Boot REST API
      │  Controller → Service → Repository
      ▼
-MySQL (job_tracker)
+PostgreSQL / Supabase   (production)
+MySQL                    (local development)
 ```
 
 Backend package layout follows a standard layered architecture:
@@ -130,7 +136,10 @@ Database: `job_tracker`
 | updated_at       | DATETIME     |
 
 `spring.jpa.hibernate.ddl-auto=update` creates/updates these tables automatically
-on startup — no manual schema scripts are required for local development.
+on startup — no manual schema scripts are required. The mapping is portable: IDs use
+`GenerationType.IDENTITY` and the `notes` column is declared as `TEXT` rather than
+`@Lob`, because `@Lob` on a String maps to an out-of-band `oid` large object on
+PostgreSQL instead of a real column.
 
 ---
 
@@ -175,43 +184,57 @@ Standard HTTP status codes are used throughout: `200`, `201`, `204`, `400`, `401
 ## Project Structure
 
 ```
-jobtracker/
+jopapplication/
 ├── backend/
+│   ├── Dockerfile
 │   ├── pom.xml
-│   └── src/main/
-│       ├── java/com/jobtracker/
-│       │   ├── controller/
-│       │   ├── service/
-│       │   ├── repository/
-│       │   ├── entity/
-│       │   ├── dto/
-│       │   ├── security/
-│       │   ├── exception/
-│       │   ├── config/
-│       │   └── JobTrackerApplication.java
-│       └── resources/
-│           └── application.properties
+│   └── src/
+│       ├── main/
+│       │   ├── java/com/jobtracker/
+│       │   │   ├── controller/
+│       │   │   ├── service/
+│       │   │   ├── repository/
+│       │   │   ├── entity/
+│       │   │   ├── dto/
+│       │   │   ├── security/
+│       │   │   ├── exception/
+│       │   │   ├── config/       SecurityConfig, DataSourceConfig,
+│       │   │   │                 DataSeeder, ProductionConfigValidator
+│       │   │   └── JobTrackerApplication.java
+│       │   └── resources/
+│       │       ├── application.properties
+│       │       ├── application-local.properties
+│       │       └── application-prod.properties
+│       └── test/
+│           └── java/com/jobtracker/config/DataSourceConfigTest.java
 │
-└── frontend/
-    ├── index.html
-    ├── package.json
-    ├── vite.config.js
-    └── src/
-        ├── components/
-        ├── pages/
-        ├── services/
-        ├── context/
-        ├── utils/
-        ├── styles/
-        ├── App.jsx
-        └── main.jsx
+├── frontend/
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── vercel.json            Vercel build + SPA rewrite
+│   ├── netlify.toml           Netlify build + SPA rewrite
+│   ├── public/_redirects      SPA rewrite for Cloudflare Pages
+│   └── src/
+│       ├── components/
+│       ├── pages/
+│       ├── services/
+│       ├── context/
+│       ├── utils/
+│       ├── styles/
+│       ├── App.jsx
+│       └── main.jsx
+│
+└── .github/workflows/
+    ├── ci.yml                 build + test on every push/PR
+    └── deploy.yml             optional CI-driven deploys
 ```
 
 ---
 
 ## How to Run the Backend
 
-**Prerequisites:** Java 17+, Maven 3.9+, a running MySQL 8 instance.
+**Prerequisites:** Java 17+, Maven 3.9+, and MySQL 8 *or* PostgreSQL running locally.
 
 ```bash
 cd backend
@@ -234,6 +257,33 @@ The API starts on **http://localhost:8080**. On first run it seeds a demo accoun
 
 If you don't have the Maven wrapper jar available, run `mvn spring-boot:run` instead
 (with Maven installed locally), or generate the wrapper with `mvn -N wrapper:wrapper`.
+
+### Using PostgreSQL locally
+
+Set `DATABASE_URL` to a standard connection string. It does not need the `jdbc:`
+prefix, and credentials may be embedded in it — `DataSourceConfig` normalises the
+whole thing into a JDBC URL and moves any password out of the URL:
+
+```bash
+export DATABASE_URL="postgresql://postgres:password@localhost:5432/job_tracker"
+./mvnw spring-boot:run
+```
+
+### Using MySQL locally
+
+MySQL is the default local profile and works out of the box, because the JDBC URL
+sets `createDatabaseIfNotExist=true`. To use a dedicated user instead of `root`:
+
+```sql
+CREATE DATABASE IF NOT EXISTS job_tracker
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'jobtrack'@'localhost' IDENTIFIED BY 'a_strong_password';
+GRANT ALL PRIVILEGES ON job_tracker.* TO 'jobtrack'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Then point the backend at it via `DB_USERNAME` / `DB_PASSWORD` (see below).
 
 ---
 
@@ -258,72 +308,162 @@ npm run build   # outputs to frontend/dist
 npm run preview # serve the production build locally
 ```
 
+`VITE_API_BASE_URL` is inlined into the bundle at **build** time, so changing it
+requires a rebuild rather than a restart. In production the app refuses to start
+without it instead of silently calling `localhost:8080`.
+
 ---
 
-## How to Configure MySQL
+## Configuration Profiles
 
-```sql
-CREATE DATABASE IF NOT EXISTS job_tracker
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+The backend is split across three properties files so a deployment cannot quietly
+fall back to a development default:
 
-CREATE USER IF NOT EXISTS 'jobtrack'@'localhost' IDENTIFIED BY 'a_strong_password';
-GRANT ALL PRIVILEGES ON job_tracker.* TO 'jobtrack'@'localhost';
-FLUSH PRIVILEGES;
-```
+| File | When it applies | Contains |
+|------|-----------------|----------|
+| `application.properties` | always | shared settings (JPA, pool, actuator, logging) |
+| `application-local.properties` | no profile set (the default locally) | MySQL URL, dev JWT key, `localhost:5173` CORS, seeding **on** |
+| `application-prod.properties` | `SPRING_PROFILES_ACTIVE=prod` | no fallbacks — every secret is empty by default |
 
-Then point the backend at it via `DB_USERNAME` / `DB_PASSWORD` (see below). The
-application also auto-creates the database if it doesn't exist, thanks to
-`createDatabaseIfNotExist=true` in the JDBC URL — the `CREATE DATABASE` step above
-is optional for local development.
+`ProductionConfigValidator` runs at startup under the `prod` profile and **refuses
+to start** if `JWT_SECRET` is missing or still the bundled development value, or if
+`CORS_ORIGINS` is missing or contains a bare `*`. A bad deploy fails at boot with
+a readable message rather than serving traffic with a forgeable token.
 
 ---
 
 ## Environment Variables
 
-**Backend** (`backend/src/main/resources/application.properties` reads these):
+### Backend
 
-| Variable            | Default                 | Description                        |
-|---------------------|--------------------------|-------------------------------------|
-| `DB_HOST`            | `localhost`              | MySQL host                          |
-| `DB_PORT`            | `3306`                   | MySQL port                          |
-| `DB_NAME`            | `job_tracker`            | Database name                       |
-| `DB_USERNAME`        | `root`                   | MySQL username                      |
-| `DB_PASSWORD`        | `root`                   | MySQL password                      |
-| `JWT_SECRET`         | (dev default, change me) | Base64 HMAC secret for signing JWTs |
-| `JWT_EXPIRATION_MS`  | `86400000` (24h)         | Token lifetime in milliseconds      |
-| `CORS_ORIGINS`       | `http://localhost:5173`  | Comma-separated allowed origins     |
-| `SEED_ENABLED`       | `true`                   | Seed a demo account with sample data |
+| Variable | Default (local) | Description |
+|----------|-----------------|-------------|
+| `DATABASE_URL` | – | Platform connection string, e.g. `postgresql://user:pw@host:5432/db`. Takes priority over `SPRING_DATASOURCE_URL`. |
+| `SPRING_DATASOURCE_URL` | MySQL on localhost | Full JDBC URL. Only set this if you are **not** using `DATABASE_URL`. |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | `localhost` / `3306` / `job_tracker` | Local MySQL parts. |
+| `DB_USERNAME` / `DB_PASSWORD` | `root` / `root` | Local MySQL credentials. |
+| `DB_POOL_MAX` / `DB_POOL_MIN_IDLE` | `10` / `2` | HikariCP pool sizing. |
+| `JWT_SECRET` | dev key | Base64 HMAC secret for signing JWTs. **Required in production.** |
+| `JWT_EXPIRATION_MS` | `86400000` (24h) | Token lifetime in milliseconds. |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins. Wildcards like `https://*.vercel.app` are supported; a bare `*` is rejected. **Required in production.** |
+| `SEED_ENABLED` | `true` locally, `false` in prod | Seed the demo account on first boot. |
+| `JPA_DDL_AUTO` | `update` | Hibernate schema management. |
+| `LOG_LEVEL_APP` / `LOG_LEVEL_SQL` | `INFO` / `OFF` | Logging levels. |
 
-**⚠️ Change `JWT_SECRET` before deploying anywhere beyond your own machine.**
+### Frontend
 
-**Frontend** (`frontend/.env`, copy from `.env.example`):
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_BASE_URL` | Backend base URL including `/api`. Required at build time in production. |
 
-| Variable              | Default                          |
-|-----------------------|-----------------------------------|
-| `VITE_API_BASE_URL`   | `http://localhost:8080/api`      |
+**⚠️ `JWT_SECRET` must be set in production** — `openssl rand -base64 48`. The
+application will not start without it under the `prod` profile.
+
+---
+
+## Deploying
+
+### Backend to Render + Supabase
+
+1. **Supabase** — create a project, then copy the connection string from
+   **Project Settings > Database > Connection string**. Use the **Session pooler**
+   (port 5432) or **Direct connection** (port 5432, IPv6) URI.
+
+2. **Render** — New > Web Service, connect the repo, and set:
+
+   | Setting | Value |
+   |---------|-------|
+   | Root Directory | `backend` |
+   | Runtime | Docker |
+   | Health Check Path | `/actuator/health` |
+
+3. Add these environment variables in **Render > Environment**:
+
+   ```
+   SPRING_PROFILES_ACTIVE=prod
+   DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+   JWT_SECRET=<openssl rand -base64 48>
+   CORS_ORIGINS=https://<your-frontend>.vercel.app
+   SEED_ENABLED=false
+   ```
+
+   `DATABASE_URL` is enough on its own — the password can stay embedded in the URI,
+   and `sslmode=require` is added automatically for non-local hosts.
+
+   Supabase's default `postgres` role is not a superuser, so if schema creation
+   fails, either run the DDL from the Supabase SQL editor or set
+   `JPA_DDL_AUTO=none` once the tables exist.
+
+### Frontend to Vercel
+
+1. New Project, import the repo, set **Root Directory** to `frontend`. Vercel reads
+   `vercel.json` for the build command, output directory, SPA rewrite and cache
+   headers.
+2. Add the environment variable for **all** environments:
+
+   ```
+   VITE_API_BASE_URL=https://<your-backend>.onrender.com/api
+   ```
+
+3. Deploy, then copy the resulting URL into the backend's `CORS_ORIGINS` and
+   redeploy the backend. Both sides need the update.
+
+The `rewrites` rule in `vercel.json` is what makes a hard refresh on
+`/dashboard` or `/applications/42` work instead of returning a 404.
+
+### Netlify / Cloudflare Pages
+
+`frontend/netlify.toml` and `frontend/public/_redirects` cover both.
+
+- **Netlify** — set base directory to `frontend`; the config is picked up
+  automatically.
+- **Cloudflare Pages** — build command `npm run build`, output directory `dist`,
+  root directory `frontend`. `_redirects` is copied into the output by Vite.
+
+### Continuous Deployment
+
+The simplest setup needs no CI configuration at all:
+
+- **Render** — Settings > Service > Auto-Deploy, on branch `main`.
+- **Vercel** — Settings > Git, connected to `main`, Deployments > Automatic.
+
+Both then rebuild on every push to `main`. `.github/workflows/ci.yml` runs
+`mvn verify` and `npm run build` on every push and pull request as a gate.
+
+`.github/workflows/deploy.yml` is an alternative for driving deploys from CI
+instead. It pings a Render deploy hook and runs the Vercel CLI with `--prebuilt`,
+and each job skips itself with a notice if its secrets are not set. Required
+secrets: `RENDER_DEPLOY_HOOK_URL`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+`VERCEL_PROJECT_ID`. Store `VITE_API_BASE_URL` as an encrypted variable on the
+Vercel project so it never passes through CI logs.
 
 ---
 
 ## Demo Account
 
-On first startup (with `SEED_ENABLED=true`, the default), the backend creates a
-demo account pre-loaded with sample applications so the UI is immediately
-explorable:
+On first startup, the backend creates a demo account pre-loaded with sample
+applications so the UI is immediately explorable:
 
 ```
 Email:    demo@jobtrack.com
 Password: demo1234
 ```
 
+Seeding is **on** locally (`application-local.properties`) and **off** in
+production, because a publicly known password on a public URL is a liability. Set
+`SEED_ENABLED=true` on Render if you want the demo data; the seeder is idempotent
+and will not overwrite an existing account.
+
 ---
 
 ## Future Improvements
 
+- Flyway migrations so `ddl-auto=update` can be replaced with `validate` in production
 - Refresh tokens and silent token renewal
 - Email verification and password-reset flow
 - File upload for resumes attached to each application
 - Kanban-style drag-and-drop board view for statuses
 - Calendar sync for interview dates (Google Calendar / ICS export)
 - Server-side pagination for large application lists
-- Automated test suite (JUnit + Mockito on the backend, Vitest on the frontend)
+- Integration tests against a Testcontainers PostgreSQL
 - Dark mode

@@ -51,8 +51,9 @@ public class JobApplication {
     @Column(name = "job_url", length = 500)
     private String jobUrl;
 
-    @Lob
-    @Column(name = "notes")
+    // Not @Lob: on PostgreSQL that maps to an out-of-band `oid` large object
+    // rather than a column value. TEXT works on both PostgreSQL and MySQL.
+    @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
     @Column(name = "created_at", updatable = false)

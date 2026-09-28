@@ -47,6 +47,10 @@ public class JobApplicationService {
         return toResponse(application);
     }
 
+    // Reads are read-only transactions because open-in-view is disabled: without
+    // one, the LAZY `user` proxy touched in findOwned() is already detached.
+
+    @Transactional(readOnly = true)
     public List<JobApplicationResponse> getAll(Long userId, String search, ApplicationStatus status,
                                                 JobType jobType, String location, String sort) {
         List<JobApplication> applications = jobApplicationRepository.findByUserId(userId);
@@ -65,6 +69,7 @@ public class JobApplicationService {
         return filtered.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public JobApplicationResponse getById(Long userId, Long applicationId) {
         JobApplication application = findOwned(userId, applicationId);
         return toResponse(application);
@@ -102,6 +107,7 @@ public class JobApplicationService {
         jobApplicationRepository.delete(application);
     }
 
+    @Transactional(readOnly = true)
     public DashboardStatsResponse getDashboardStats(Long userId) {
         List<JobApplication> all = jobApplicationRepository.findByUserId(userId);
 
@@ -137,6 +143,7 @@ public class JobApplicationService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
     public Map<String, List<JobApplicationResponse>> getInterviews(Long userId) {
         List<JobApplication> upcoming = jobApplicationRepository.findUpcomingInterviews(userId, LocalDateTime.now());
         List<JobApplication> past = jobApplicationRepository.findPastInterviews(userId, LocalDateTime.now());
@@ -147,6 +154,7 @@ public class JobApplicationService {
         return result;
     }
 
+    @Transactional(readOnly = true)
     public AnalyticsResponse getAnalytics(Long userId) {
         List<JobApplication> all = jobApplicationRepository.findByUserId(userId);
 
