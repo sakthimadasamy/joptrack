@@ -1,0 +1,28 @@
+# Normalise text files in the repository to LF regardless of each developer's
+# core.autocrlf setting. The backend image is built on Linux, and a CRLF in the
+# Dockerfile or a shell entrypoint can break the build in ways that are hard to
+# diagnose from the Render log.
+* text=auto eol=lf
+
+# Files that must stay LF, most sensitive first.
+Dockerfile    text eol=lf
+*.sh          text eol=lf
+*.properties  text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+
+# Keep Windows line endings for these, where CRLF is expected by the tool.
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# Binary: never touch.
+*.jar         binary
+*.class       binary
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.woff        binary
+*.woff2       binary
